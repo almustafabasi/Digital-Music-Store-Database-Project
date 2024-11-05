@@ -1,0 +1,95 @@
+/*
+QUERY 1
+What is Iron Maiden's monthly growth rate?
+*/ 
+WITH Monthly_Maiden_Rev AS 
+  (SELECT strftime('%Y-%m', i.InvoiceDate) AS MONTH, 
+          sum(l.UnitPrice * l.Quantity) AS Revenue 
+   FROM Invoice i 
+   JOIN InvoiceLine l ON i.InvoiceId = l.InvoiceId 
+   JOIN Track t ON l.TrackId = t.TrackId 
+   JOIN Album a ON t.AlbumId = a.AlbumId 
+   JOIN Artist r ON a.ArtistId = r.ArtistId 
+   WHERE r.Name = 'Iron Maiden'
+   GROUP BY 1)
+SELECT MONTH,
+       Revenue,
+       lag(Revenue, 1) OVER (
+                             ORDER BY MONTH) AS "Previous Revenue",
+       round(((Revenue - lag(Revenue, 1) OVER (
+                                               ORDER BY MONTH)) / NULLIF(lag(Revenue, 1) OVER (
+                                                                                               ORDER BY MONTH), 0)) * 100, 2) AS "Growth Rate"
+FROM Monthly_Maiden_Rev
+ORDER BY 1;
+
+/*
+QUERY 2
+How many customers fall into different spending groups?
+*/ 
+WITH customer_spent AS
+  (SELECT c.CustomerId,
+          (c.FirstName || ' ' || c.LastName) AS Name,
+          sum(i.total) AS Tot_Spent
+   FROM Customer c
+   JOIN Invoice i ON c.CustomerId = i.CustomerId
+   GROUP BY 1
+   ORDER BY 3 DESC)
+SELECT CASE
+           WHEN Tot_Spent < 40 THEN "Low"
+           WHEN Tot_Spent BETWEEN 40 AND 45 THEN "Medium"
+           ELSE "High"
+       END AS Category,
+       count(CustomerId) AS "Customers Count"
+FROM customer_spent
+GROUP BY 1;
+
+/*
+QUERY 3
+Who are the top 5 Artists by Total Sales?
+*/ 
+WITH Artist_Rev AS
+  (SELECT r.ArtistId,
+          r.Name AS Artist,
+          sum(l.Quantity * l.UnitPrice) AS "Revenue USD"
+   FROM Invoice i
+   JOIN InvoiceLine l ON i.InvoiceId = l.InvoiceId
+   JOIN Track t ON l.TrackId = t.TrackId
+   JOIN Album a ON t.AlbumId = a.AlbumId
+   JOIN Artist r ON a.ArtistId = r.ArtistId
+   GROUP BY 1
+   ORDER BY 3 DESC),
+        Artist_rank AS
+  (SELECT Artist,
+          "Revenue USD",
+          rank() OVER (
+                       ORDER BY "Revenue USD" DESC) AS "Rank"
+   FROM Artist_Rev)
+SELECT Artist,
+       "Revenue USD",
+       "Rank"
+FROM Artist_rank
+WHERE "Rank" <= 5
+ORDER BY 3;
+
+/*
+QUERY 4
+How much does each media type contribute to the total revenue?
+*/ 
+WITH total_rev AS
+  (SELECT sum(Total) AS Sum_total
+   FROM Invoice),
+        media_rev AS
+  (SELECT m.Name AS "Media Type",
+          sum(l.Quantity * l.UnitPrice) AS "Media Revenue"
+   FROM MediaType m
+   JOIN Track t ON m.MediaTypeId = t.MediaTypeId
+   JOIN InvoiceLine l ON t.TrackId = l.TrackId
+   GROUP BY 1
+   ORDER BY 1 DESC)
+SELECT "Media Type",
+       "Media Revenue",
+       round(("Media Revenue" /
+                (SELECT Sum_total
+                 FROM total_rev) * 100),2) AS "Contribution %"
+FROM media_rev
+ORDER BY 3 DESC;
